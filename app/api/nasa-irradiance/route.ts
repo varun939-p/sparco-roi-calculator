@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const NASA_URL =
     "https://power.larc.nasa.gov/api/temporal/climatology/point?parameters=ALLSKY_SFC_SW_DWN&community=RE&longitude=78.4867&latitude=17.3850&format=JSON";
@@ -13,7 +15,7 @@ export async function GET() {
       headers: {
         Accept: "application/json",
       },
-      next: { revalidate: 86400 }, // Cache climatology for 24 hours
+      cache: "no-store", // Real-time fetch directly from NASA POWER API, no stale caching
     });
 
     clearTimeout(timeoutId);
@@ -43,6 +45,8 @@ export async function GET() {
         longitude: 78.4867,
       },
       monthly: data?.properties?.parameter?.ALLSKY_SFC_SW_DWN || {},
+      fetchedAt: new Date().toISOString(),
+      dataSource: "NASA Langley Research Center POWER Satellite Climatology (RE Community)",
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch NASA API data";
