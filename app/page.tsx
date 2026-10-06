@@ -52,6 +52,23 @@ const niceStep = (v: number) => {
   return (found !== undefined ? found : 10) * p;
 };
 
+// Clean decimal input: allow digits and at most one decimal point
+const cleanDecimalInput = (val: string): string => {
+  let clean = val.replace(/[^\d.]/g, "");
+  const parts = clean.split(".");
+  if (parts.length > 2) {
+    clean = parts[0] + "." + parts.slice(1).join("");
+  }
+  return clean;
+};
+
+// Safe numerical parser for calculations: converts valid strings or returns 0
+const parseNumber = (val: string): number => {
+  if (!val) return 0;
+  const n = parseFloat(val);
+  return isNaN(n) ? 0 : n;
+};
+
 // SVG Icons matching prototype .ico exactly
 function KpiIcon({ index }: { index: number }) {
   if (index === 0) {
@@ -81,25 +98,25 @@ export default function HomePage() {
   const [activeCase, setActiveCase] = useState<CaseKey>("mid");
 
   // ---------------------------------------------------------------------------
-  // ZERO-STATE INITIALIZATION: All numerical inputs start strictly at 0
+  // ZERO-STATE INITIALIZATION: String state for precision decimal typing
   // ---------------------------------------------------------------------------
   const [buyerInputs, setBuyerInputs] = useState({
-    demand: 0,
-    tariff: 0,
+    demand: "",
+    tariff: "",
   });
 
   const [sellerInputs, setSellerInputs] = useState({
-    cap: 0,
-    sun: 0,
-    capex: 0,
-    amc: 0,
+    cap: "",
+    sun: "",
+    capex: "",
+    amc: "",
   });
 
   const [merchantInputs, setMerchantInputs] = useState({
-    cap: 0,
-    cycles: 0,
-    capex: 0,
-    amc: 0,
+    cap: "",
+    cycles: "",
+    capex: "",
+    amc: "",
   });
 
   // NASA POWER API dynamic pipeline state
@@ -143,7 +160,7 @@ export default function HomePage() {
 
       if (typeof annValue === "number" && !isNaN(annValue)) {
         const rounded = Number(annValue.toFixed(2));
-        setSellerInputs((prev) => ({ ...prev, sun: rounded }));
+        setSellerInputs((prev) => ({ ...prev, sun: String(rounded) }));
         setNasaStatus({
           type: "success",
           message: "✓ NASA POWER Satellite Climatology (ANN Average)",
@@ -165,9 +182,9 @@ export default function HomePage() {
 
   // Reset inputs handler: cleanly resets back to 0 zero-state
   const handleResetInputs = () => {
-    setBuyerInputs({ demand: 0, tariff: 0 });
-    setSellerInputs({ cap: 0, sun: 0, capex: 0, amc: 0 });
-    setMerchantInputs({ cap: 0, cycles: 0, capex: 0, amc: 0 });
+    setBuyerInputs({ demand: "", tariff: "" });
+    setSellerInputs({ cap: "", sun: "", capex: "", amc: "" });
+    setMerchantInputs({ cap: "", cycles: "", capex: "", amc: "" });
     setActiveCase("mid");
     setNasaStatus(null);
   };
@@ -177,8 +194,10 @@ export default function HomePage() {
   // ---------------------------------------------------------------------------
   // Buyer Profile Calculations
   const buyerData = useMemo(() => {
-    const raw = calculateBuyerSavings(buyerInputs.demand, buyerInputs.tariff);
-    const hasData = buyerInputs.demand > 0 && buyerInputs.tariff > 0;
+    const demandNum = parseNumber(buyerInputs.demand);
+    const tariffNum = parseNumber(buyerInputs.tariff);
+    const raw = calculateBuyerSavings(demandNum, tariffNum);
+    const hasData = demandNum > 0 && tariffNum > 0;
 
     const cases = {
       best: {
@@ -253,9 +272,14 @@ export default function HomePage() {
 
   // Seller Profile Calculations
   const sellerData = useMemo(() => {
-    const dailyGen = calculateSolarGeneration(sellerInputs.cap, sellerInputs.sun);
-    const raw = calculateSellerROI(dailyGen, sellerInputs.capex, sellerInputs.amc);
-    const hasData = sellerInputs.cap > 0 && sellerInputs.sun > 0;
+    const capNum = parseNumber(sellerInputs.cap);
+    const sunNum = parseNumber(sellerInputs.sun);
+    const capexNum = parseNumber(sellerInputs.capex);
+    const amcNum = parseNumber(sellerInputs.amc);
+
+    const dailyGen = calculateSolarGeneration(capNum, sunNum);
+    const raw = calculateSellerROI(dailyGen, capexNum, amcNum);
+    const hasData = capNum > 0 && sunNum > 0;
 
     const formatPb = (pb: number | null) =>
       pb !== null && pb > 0 ? `${pb.toFixed(1)} yrs` : "—";
@@ -266,7 +290,7 @@ export default function HomePage() {
         g: raw.annualGenerationKWh,
         rev: raw.scenarios.best.annualRevenue,
         net: raw.scenarios.best.annualNetProfit,
-        capex: sellerInputs.capex,
+        capex: capexNum,
         pb: formatPb(raw.scenarios.best.paybackPeriodYears),
       },
       mid: {
@@ -274,7 +298,7 @@ export default function HomePage() {
         g: raw.annualGenerationKWh,
         rev: raw.scenarios.mid.annualRevenue,
         net: raw.scenarios.mid.annualNetProfit,
-        capex: sellerInputs.capex,
+        capex: capexNum,
         pb: formatPb(raw.scenarios.mid.paybackPeriodYears),
       },
       worst: {
@@ -282,7 +306,7 @@ export default function HomePage() {
         g: raw.annualGenerationKWh,
         rev: raw.scenarios.worst.annualRevenue,
         net: raw.scenarios.worst.annualNetProfit,
-        capex: sellerInputs.capex,
+        capex: capexNum,
         pb: formatPb(raw.scenarios.worst.paybackPeriodYears),
       },
     };
@@ -298,7 +322,7 @@ export default function HomePage() {
         {
           l: "Payback Period",
           v: hasData ? c.pb : "—",
-          sub: sellerInputs.capex > 0 ? "On " + inr(c.capex) + " total CAPEX" : "On — total CAPEX",
+          sub: capexNum > 0 ? "On " + inr(c.capex) + " total CAPEX" : "On — total CAPEX",
         },
         {
           l: "Realized Export Tariff",
@@ -332,13 +356,18 @@ export default function HomePage() {
 
   // Merchant Profile Calculations
   const merchantData = useMemo(() => {
+    const capNum = parseNumber(merchantInputs.cap);
+    const cyclesNum = parseNumber(merchantInputs.cycles);
+    const capexNum = parseNumber(merchantInputs.capex);
+    const amcNum = parseNumber(merchantInputs.amc);
+
     const raw = calculateMerchantArbitrage(
-      merchantInputs.cap,
-      merchantInputs.cycles,
-      merchantInputs.capex,
-      merchantInputs.amc
+      capNum,
+      cyclesNum,
+      capexNum,
+      amcNum
     );
-    const hasData = merchantInputs.cap > 0 && merchantInputs.cycles > 0;
+    const hasData = capNum > 0 && cyclesNum > 0;
 
     const formatPb = (pb: number | null) =>
       pb !== null && pb > 0 ? `${pb.toFixed(1)} yrs` : "—";
@@ -356,7 +385,7 @@ export default function HomePage() {
         p: raw.scenarios.best.annualNetProfit,
         sp: SP.best,
         bs: "Buy @ ₹4.50 → Sell @ ₹8.50",
-        capex: merchantInputs.capex,
+        capex: capexNum,
         pb: formatPb(raw.scenarios.best.paybackPeriodYears),
       },
       mid: {
@@ -365,7 +394,7 @@ export default function HomePage() {
         p: raw.scenarios.mid.annualNetProfit,
         sp: SP.mid,
         bs: "Buy @ ₹6.50 → Sell @ ₹8.00",
-        capex: merchantInputs.capex,
+        capex: capexNum,
         pb: formatPb(raw.scenarios.mid.paybackPeriodYears),
       },
       worst: {
@@ -374,7 +403,7 @@ export default function HomePage() {
         p: raw.scenarios.worst.annualNetProfit,
         sp: SP.worst,
         bs: "Buy @ ₹6.50 → Sell @ ₹7.50",
-        capex: merchantInputs.capex,
+        capex: capexNum,
         pb: formatPb(raw.scenarios.worst.paybackPeriodYears),
       },
     };
@@ -390,7 +419,7 @@ export default function HomePage() {
         {
           l: "Payback Period",
           v: hasData ? c.pb : "—",
-          sub: merchantInputs.capex > 0 ? "On " + inr(c.capex) + " total CAPEX" : "On — total CAPEX",
+          sub: capexNum > 0 ? "On " + inr(c.capex) + " total CAPEX" : "On — total CAPEX",
         },
         {
           l: "Net Spread Margin",
@@ -509,12 +538,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="1000"
-                        value={buyerInputs.demand === 0 ? "" : buyerInputs.demand}
+                        value={buyerInputs.demand}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setBuyerInputs((prev) => ({
                             ...prev,
-                            demand: val === "" ? 0 : parseFloat(val),
+                            demand: val,
                           }));
                         }}
                       />
@@ -533,12 +562,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="10.5"
-                        value={buyerInputs.tariff === 0 ? "" : buyerInputs.tariff}
+                        value={buyerInputs.tariff}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setBuyerInputs((prev) => ({
                             ...prev,
-                            tariff: val === "" ? 0 : parseFloat(val),
+                            tariff: val,
                           }));
                         }}
                       />
@@ -573,12 +602,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="100"
-                        value={sellerInputs.cap === 0 ? "" : sellerInputs.cap}
+                        value={sellerInputs.cap}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setSellerInputs((prev) => ({
                             ...prev,
-                            cap: val === "" ? 0 : parseFloat(val),
+                            cap: val,
                           }));
                         }}
                       />
@@ -595,12 +624,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="4.5"
-                        value={sellerInputs.sun === 0 ? "" : sellerInputs.sun}
+                        value={sellerInputs.sun}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setSellerInputs((prev) => ({
                             ...prev,
-                            sun: val === "" ? 0 : parseFloat(val),
+                            sun: val,
                           }));
                         }}
                       />
@@ -625,7 +654,7 @@ export default function HomePage() {
                             stroke="currentColor"
                             strokeWidth="2"
                           >
-                            <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                            <circle cx="12" cy="10" r="10" strokeOpacity="0.25" />
                             <path d="M12 2a10 10 0 0 1 10 10" />
                           </svg>
                           <span>Fetching NASA POWER Satellite Data...</span>
@@ -673,12 +702,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="4000000"
-                        value={sellerInputs.capex === 0 ? "" : sellerInputs.capex}
+                        value={sellerInputs.capex}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setSellerInputs((prev) => ({
                             ...prev,
-                            capex: val === "" ? 0 : parseFloat(val),
+                            capex: val,
                           }));
                         }}
                       />
@@ -695,12 +724,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="50000"
-                        value={sellerInputs.amc === 0 ? "" : sellerInputs.amc}
+                        value={sellerInputs.amc}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setSellerInputs((prev) => ({
                             ...prev,
-                            amc: val === "" ? 0 : parseFloat(val),
+                            amc: val,
                           }));
                         }}
                       />
@@ -722,12 +751,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="500"
-                        value={merchantInputs.cap === 0 ? "" : merchantInputs.cap}
+                        value={merchantInputs.cap}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setMerchantInputs((prev) => ({
                             ...prev,
-                            cap: val === "" ? 0 : parseFloat(val),
+                            cap: val,
                           }));
                         }}
                       />
@@ -746,12 +775,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="2"
-                        value={merchantInputs.cycles === 0 ? "" : merchantInputs.cycles}
+                        value={merchantInputs.cycles}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setMerchantInputs((prev) => ({
                             ...prev,
-                            cycles: val === "" ? 0 : parseFloat(val),
+                            cycles: val,
                           }));
                         }}
                       />
@@ -768,12 +797,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="6000000"
-                        value={merchantInputs.capex === 0 ? "" : merchantInputs.capex}
+                        value={merchantInputs.capex}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setMerchantInputs((prev) => ({
                             ...prev,
-                            capex: val === "" ? 0 : parseFloat(val),
+                            capex: val,
                           }));
                         }}
                       />
@@ -792,12 +821,12 @@ export default function HomePage() {
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="0"
-                        value={merchantInputs.amc === 0 ? "" : merchantInputs.amc}
+                        value={merchantInputs.amc}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/[^\d.]/g, "");
+                          const val = cleanDecimalInput(e.target.value);
                           setMerchantInputs((prev) => ({
                             ...prev,
-                            amc: val === "" ? 0 : parseFloat(val),
+                            amc: val,
                           }));
                         }}
                       />
